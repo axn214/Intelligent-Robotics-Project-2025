@@ -1,46 +1,37 @@
-# controller_vo_with_viz.py
-# Single-file Webots controller:
-# - LiDAR -> clustering -> obstacle centers
-# - Odometry
-# - Go-to-goal + static VO avoidance
-# - Matplotlib visualization of LiDAR, obstacles, VO cones, robot velocity and goal
-
-from controller import Robot
+from controller import Robot, Keyboard
 import math
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.patches import Circle, FancyArrowPatch
+import random
 
-# ----------------- PARAMETERS -----------------
+# ----------------- ROBOT INITIALISATION -----------------
+robot = Robot()
+
+# ----------------- GENERIC PARAMETERS -----------------
 WHEEL_RADIUS = 0.033
-WHEEL_BASE   = 0.160
+DISTANCE_BETWEEN_WHEELS = 0.160
 ROBOT_RADIUS = 0.15  # used to inflate obstacles for safety
 MAX_WHEEL_SPEED = 6.67
-
-
 V_NOMINAL = 0.5
 W_GAIN = 2.0
+TIME_STEP = int(robot.getBasicTimeStep())
 
-# Clustering params
+K_D = 0.2 # Linear Velocity Strength Constant
+K_T = 10 # Angular Velocity Strength Constant
+
+# ----------------- CLUSTERING PARAMETERS -----------------
 CLUSTER_DIST = 0.25
 CLUSTER_MIN_POINTS = 5
 
-# VO parameters
+# ----------------- OBSTACLE AVOIDANCE PARAMETERS -----------------
 SLOWDOWN_FACTOR = 0.25
-TURN_BIAS = 1.2   # angular bias when avoiding
+TURN_BIAS = 1.5   # angular bias when avoiding
 
-# ----------------- ROBOT SETUP -----------------
-robot = Robot()
+# Keyboard for testing in different cases
+kb = Keyboard()
+kb.enable(TIME_STEP)
 
-# get the time step of the current world.
-TIME_STEP = int(robot.getBasicTimeStep())
-
-# Try both names for different robots
-try:
-    lidar = robot.getDevice("LDS-01")
-except:
-    lidar = robot.getDevice("laser")
-
+# ----------------- DEVICE SETUP -----------------
+lidar = robot.getDevice("LDS-01")
 lidar.enable(TIME_STEP)
 lidar.enablePointCloud()
 fov = lidar.getFov()
@@ -60,64 +51,21 @@ right_motor.setPosition(float("inf"))
 left_motor.setVelocity(0.0)
 right_motor.setVelocity(0.0)
 
-
-# Initialise an array for robot pose ([x, y, theta])
-pose = []
-
-# You should insert a getDevice-like function in order to get the
-# instance of a device of the robot. Something like:
-#  motor = robot.getDevice('motorname')
-#  ds = robot.getDevice('dsname')
-#  ds.enable(timestep)
-
-# Declare Linear Velocity Strength Constant
-K_D = 0.2
-
-# Declaur Angular Velocity Strength Constant
-K_T = 10
-
-WHEEL_RADIUS = 0.033
-
-DISTANCE_BETWEEN_WHEELS = 0.160
-
-# Initialise sensors
 gps = robot.getDevice('gps')
 gps.enable(TIME_STEP)
 
 compass = robot.getDevice('compass')
 compass.enable(TIME_STEP)
 
+# Simulate 1 time step for device initialisation
 robot.step(TIME_STEP)
 
-# Create global variables to store the old encoder values (previous timestep)
+# Create an array to store robot pose ([x, y, theta])
+pose = []
+
+# Variables to store the old encoder values (previous timestep)
 left_encoder_old = left_encoder.getValue()
 right_encoder_old = right_encoder.getValue()
-
-
-# ----------------- Matplotlib (interactive) -----------------
-# plt.ion()
-# fig, ax = plt.subplots(figsize=(7,7))
-# scat = ax.scatter([], [], s=6, color='blue', label='LiDAR points')
-
-# robot_body = Circle((0, 0), ROBOT_RADIUS, fill=False, color='red', linewidth=2, label='Robot')
-# ax.add_patch(robot_body)
-
-# heading_arrow = FancyArrowPatch((0,0),(0.4,0), arrowstyle='->', color='red', mutation_scale=15, linewidth=2)
-# ax.add_patch(heading_arrow)
-
-# vel_arrow = FancyArrowPatch((0,0),(0,0), arrowstyle='->', color='magenta', mutation_scale=12, linewidth=2, label='Velocity')
-# ax.add_patch(vel_arrow)
-
-
-# ax.set_xlim(-6, 12)
-# ax.set_ylim(-8, 8)
-# ax.set_aspect("equal")
-# ax.set_title("TurtleBot: LiDAR - Clusters - VO Cones - GOAL")
-# ax.legend(loc='upper right')
-
-# obstacle_circles = []
-# obstacle_labels = []
-# cone_lines = []
 
 # ----------------- Utility functions -----------------
 def detect_obstacles(xs, ys, cluster_dist=CLUSTER_DIST, min_points=CLUSTER_MIN_POINTS):
@@ -139,24 +87,6 @@ def detect_obstacles(xs, ys, cluster_dist=CLUSTER_DIST, min_points=CLUSTER_MIN_P
     if len(current) >= min_points:
         clusters.append(current)
     return clusters
-
-# def update_odometry():
-    # global x, y, theta, prev_left, prev_right
-    # left_pos = left_enc.getValue()
-    # right_pos = right_enc.getValue()
-
-    # dl = (left_pos - prev_left) * WHEEL_RADIUS
-    # dr = (right_pos - prev_right) * WHEEL_RADIUS
-    # prev_left = left_pos
-    # prev_right = right_pos
-
-    # dc = (dl + dr)/2.0
-    # dtheta = (dr - dl) / WHEEL_BASE
-
-    # x += dc * math.cos(theta + dtheta/2.0)
-    # y += dc * math.sin(theta + dtheta/2.0)
-    # theta += dtheta
-    # theta = math.atan2(math.sin(theta), math.cos(theta))
 
 def is_collision_course_static(ox, oy, v_forward, robot_x, robot_y, robot_theta, inflated_R):
     """
@@ -224,20 +154,12 @@ def calculate_velocities(distance_to_goal, angular_displacement):
     angular_velocity_left = linear_velocity_left / WHEEL_RADIUS
     angular_velocity_right = linear_velocity_right / WHEEL_RADIUS
     
-    # Convert to rev/s
-    # angular_velocity_left = angular_velocity_left / (2 * math.pi)
-    # angular_velocity_right = angular_velocity_right / (2 * math.pi)
-    print("Angular Velocity Left = ", angular_velocity_left)
-    print("Angular Velocity Right = ", angular_velocity_right)
-
     return [angular_velocity_left, angular_velocity_right]
 
 
 def compute_current_pose(angular_velocity_left, angular_velocity_right):
-    print("initial pose x", pose[0])
-    print("inital pose y", pose[1])
-    print("inital pose theta", pose[2])
-
+    
+    # Update pose (pose = [x,y,theta])
     
     global left_encoder_old
     global right_encoder_old
@@ -245,13 +167,9 @@ def compute_current_pose(angular_velocity_left, angular_velocity_right):
     velocity_left = angular_velocity_left * WHEEL_RADIUS
 
     angular_velocity = (velocity_right - velocity_left) / DISTANCE_BETWEEN_WHEELS
-    # NEW 2
     
     left_encoder_new = left_encoder.getValue()
     right_encoder_new = right_encoder.getValue()
-
-    # rev_left = (left_encoder_new - left_encoder_old) / (2 * math.pi) 
-    # rev_right = (right_encoder_new - right_encoder_old) / (2 * math.pi) 
     
     # First we need to calcualte the distance travelled by each wheel (chnage in distance)
     delta_left = (left_encoder_new - left_encoder_old) * WHEEL_RADIUS
@@ -260,7 +178,6 @@ def compute_current_pose(angular_velocity_left, angular_velocity_right):
     # Store current position sensor values for the next iteration
     left_encoder_old = left_encoder_new
     right_encoder_old = right_encoder_new
-
     
     #Calculate the robots avg displacement and orientation change
     delta_avg = (delta_left + delta_right) / 2
@@ -278,210 +195,267 @@ def compute_current_pose(angular_velocity_left, angular_velocity_right):
     theta_mid = pose[2] - delta_orientation / 2
     delta_x = delta_avg * math.cos(theta_mid)
     delta_y = delta_avg * math.sin(theta_mid)
-
-    
-
     
     # Store new x and y coordinates
     pose[0] += delta_x
     pose[1] += delta_y
+
+def generate_goals():
+    # Initialise goal position array
+    goal_positions = [(3.8, 3.99), (-3.06, 3.99), (1.17, 1.28), (3.65, -3.7), (1.45, -3.7), (1.45, 0.43), (3.29, -1.62), (0.15, -1.62), (1.09, 3.67), (-2.41, -1.12)]
+    selected_goal_positions = []
+
+    for i in range (5):
+        # Ensure we get a unique goal position
+        unique = False
+        
+        while not(unique):
+            selection = random.choice(goal_positions)
+            if not (selection in selected_goal_positions):
+                unique = True
+             
+        selected_goal_positions.append(selection)
     
-    otest = compass.getValues()
-    theta = math.atan2(otest[0], otest[1])
-    print(f'Current estimated pose is: {pose}')
-    print(f'Compass: {theta}, GPS coordinates: ({gps.getValues()[0]},{gps.getValues()[1]})')
+    return selected_goal_positions
+
+def calculate_exact_coords_for_testing():
+    
+    pos = gps.getValues()
+    x = pos[0]
+    y = pos[1]
+
+    return (x, y)
+
+# Function implemented for testing
+def update_path_length(path_length, prev_pos):
+    pos = gps.getValues()
+    if prev_pos is None:
+        prev_pos = pos
+        
+    else:
+        dx = pos[0] - prev_pos[0]
+        dy = pos[1] - prev_pos[1]
+
+        step_distance = math.sqrt(dx**2 + dy**2)
+        path_length += step_distance
+        prev_pos = pos
+
+    return path_length, prev_pos
+
+# ----------------- Main loop -----------------
+
+
+# Create an array to store the robot's predicted finishing locations (for testing)
+finishing_positions = []
+
+# Create an array to store the robot's actual finishing locations (for testing)
+actual_finishing_positions = []
+
+# Create arrays to store the path length's to the goal and the time taken (for testing)
+path_lengths = []
+times_taken = []
+
+# Gets the starting condition
+valid = False
+singleExecution = False
+
+print('Please press \"1\" for \"Multiple Goal Positions\" or \"2\" for \"Single Simulation Execution\"')
+while not (valid):
+
+    # Get control key (for testing)
+    key = kb.getKey()
+    if key == ord('1'):
+        print("Starting execution for multiple goal positions")
+        # Generate the goal positions
+        goal_positions = generate_goals()   
+        valid = True
+        
+    elif key == ord('2'):
+        print("Starting single execution")
+        goal_positions = [(4,4)]
+        valid = True
+        singleExecution = True
+
+    robot.step(TIME_STEP)
 
 # Calculate initial pose using compass and gps as odoemtry won't work yet
 pose = calculate_accurate_pose()
 
-# Initialise for testings
-goal_positions = [[3, 3]]
-goal_position = goal_positions[0]
-
-# Go-to-goal params for object avoidance - needs to be calculated each time
-GOAL_X = goal_positions[0][0]
-GOAL_Y = goal_positions[0][1]
-
-# goal_marker, = ax.plot(GOAL_X, GOAL_Y, marker='*', color='orange', markersize=12, label='Goal')
-
-# ----------------- Main loop -----------------
-print("Controller started. Goal:", (GOAL_X, GOAL_Y))
-while robot.step(TIME_STEP) != -1:
-
-    # --- LIDAR read + world transform ---
-    ranges = lidar.getRangeImage()
-    xs = []
-    ys = []
-    angle = -fov/2.0
+for goal_position in goal_positions:
+    print('Navigating to goal', goal_position)
     
-    x = pose[0]
-    y = pose[1]
-    theta = pose[2]
+    GOAL_X = goal_position[0]
+    GOAL_Y = goal_position[1]
     
-    for r in ranges:
-        if r < max_range:
-            lx = r * math.cos(angle)
-            ly = r * math.sin(angle)
-            # transform into world frame
-            gx = x + lx * math.cos(theta) - ly * math.sin(theta)
-            gy = y + lx * math.sin(theta) + ly * math.cos(theta)
-            xs.append(gx)
-            ys.append(gy)
-        angle += angle_step
-
-    pts = np.column_stack((xs, ys)) if len(xs) > 0 else np.zeros((0,2))
-    # scat.set_offsets(pts)
-
-    # --- Clustering for obstacles (in world frame) ---
-    clusters = detect_obstacles(xs, ys)
-
-    # cleanup old drawing
-    # for c in obstacle_circles:
-        # try:
-            # c.remove()
-        # except:
-            # pass
-    # for lbl in obstacle_labels:
-        # try:
-            # lbl.remove()
-        # except:
-            # pass
-    # for ln in cone_lines:
-        # try:
-            # ln.remove()
-        # except:
-            # pass
-
-    # obstacle_circles = []
-    # obstacle_labels = []
-    # cone_lines = []
-
-    # Build obstacle list for controller
-    obstacles_for_vo = []
-
-    # Print header
-    print("\n--- Detected Obstacles ---")
-
-    oid = 1
-    for cluster in clusters:
-        pts_x = [p[0] for p in cluster]
-        pts_y = [p[1] for p in cluster]
-        cx = sum(pts_x) / len(pts_x)
-        cy = sum(pts_y) / len(pts_y)
-        radius = max(math.dist((cx,cy),(px,py)) for px,py in cluster)
-
-        print(f"ID {oid}: x={cx:.2f}, y={cy:.2f}, r={radius:.2f}")
-
-        # circ = Circle((cx, cy), radius, fill=False, color='green', linewidth=2)
-        # ax.add_patch(circ)
-        # obstacle_circles.append(circ)
-
-        # lbl = ax.text(cx, cy + radius + 0.08, f"ID {oid}", color='black', fontsize=9, ha='center')
-        # obstacle_labels.append(lbl)
-
-        obstacles_for_vo.append((cx, cy, radius))
-        oid += 1
-
-    if len(clusters) == 0:
-        print("No obstacles detected.")
-
-    # --- Go-to-goal baseline control (compute v,w before VO) ---
-    dx_goal = GOAL_X - pose[0]
-    dy_goal = GOAL_Y - pose[1]
-    dist_goal = math.hypot(dx_goal, dy_goal)
-    heading_goal = math.atan2(dy_goal, dx_goal)
-
-    if dist_goal < 0.05:
-        # reached
-        left_motor.setVelocity(0)
-        right_motor.setVelocity(0)
-        print("Reached goal.")
-        break
-
-    heading_err = math.atan2(math.sin(heading_goal - theta), math.cos(heading_goal - theta))
-    v_cmd = V_NOMINAL
-    w_cmd = W_GAIN * heading_err
-
     
-    # Afolabi's Odometry code takes over
-             
-    # Compute displacement from goal
-    delta_x = goal_position[0] - pose[0]
-    delta_y = goal_position[1] - pose[1]
-              
-    distance_to_goal = math.sqrt((delta_x**2) + (delta_y**2))
-     
-    angular_displacement = math.atan2(delta_y, delta_x)
-    
-    print("ang displacement",angular_displacement)
-    
-    angular_velocity_left, angular_velocity_right = calculate_velocities(distance_to_goal, angular_displacement)
+    path_length = 0 # Length of the path travelled to goal (for testing) 
+    prev_pos = None # Previous coordinate for path length calculatios (for testing)
+    no_timesteps = 0 # Stores the number of timesteps executed to reach the destination (for testing)
+    starting_position = (pose[0], pose[1]) # Stores the number of timesteps executed to reach the destination (for testing)
 
-    # --- VO avoidance (static obstacles) ---
-    # check each obstacle; if any returns True, apply avoidance adjustments
-    for (ox, oy, oradius) in obstacles_for_vo:
-        inflated_R = ROBOT_RADIUS + oradius
-        collision = is_collision_course_static(ox, oy, v_cmd, pose[0], pose[1], pose[2], inflated_R)
-        # visualize cone even if collision False (helps debugging)
-        # compute lambda and cone boundary rays in world coords (start at robot pos)
-        dx_o = ox - pose[0]
-        dy_o = oy - pose[1]
-        d_o = math.hypot(dx_o, dy_o)
-        if d_o > 1e-6:
-            lam = math.asin(min(1.0, inflated_R / d_o))
-            p_hat = np.array([dx_o/d_o, dy_o/d_o])
-            # left boundary
-            rotL = np.array([[math.cos(+lam), -math.sin(+lam)],[math.sin(+lam), math.cos(+lam)]])
-            rotR = np.array([[math.cos(-lam), -math.sin(-lam)],[math.sin(-lam), math.cos(-lam)]])
-            bL = rotL.dot(p_hat)
-            bR = rotR.dot(p_hat)
-            cone_len = max(0.8, min(3.0, d_o))  # draw to reasonable length
-            # lineL, = ax.plot([pose[0], pose[0] + bL[0]*cone_len], [pose[1], pose[1] + bL[1]*cone_len], color='cyan', linewidth=1.5, alpha=0.8)
-            # lineR, = ax.plot([pose[0], pose[0] + bR[0]*cone_len], [pose[1], pose[1] + bR[1]*cone_len], color='cyan', linewidth=1.5, alpha=0.8)
-            # cone_lines.append(lineL); cone_lines.append(lineR)
+    while robot.step(TIME_STEP) != -1:
         
+        # --- LIDAR read + world transform ---
+        ranges = lidar.getRangeImage()
+        xs = []
+        ys = []
+        angle = -fov/2.0
         
-        # if collision predicted, steer away (add angular bias + slow)
-        if collision:
-            print("VO: avoid -> obstacle at:", (ox,oy))
-            alpha_signed = signed_angle_between_p_and_heading(dx_o, dy_o, theta)
-            if alpha_signed > 0:
-                w_cmd += TURN_BIAS
-            else:
-                w_cmd -= TURN_BIAS
-            v_cmd *= SLOWDOWN_FACTOR
+        x = pose[0]
+        y = pose[1]
+        theta = pose[2]
+        
+        for r in ranges:
+            if r < max_range:
+                lx = r * math.cos(angle)
+                ly = r * math.sin(angle)
+                # transform into world frame
+                gx = x + lx * math.cos(theta) - ly * math.sin(theta)
+                gy = y + lx * math.sin(theta) + ly * math.cos(theta)
+                xs.append(gx)
+                ys.append(gy)
+            angle += angle_step
 
-            # --- Convert (v_cmd, w_cmd) to wheel speeds and publish ---
-            omega_l = (2.0*v_cmd - w_cmd*WHEEL_BASE) / (2.0*WHEEL_RADIUS)
-            omega_r = (2.0*v_cmd + w_cmd*WHEEL_BASE) / (2.0*WHEEL_RADIUS)
-            # omega_l = max(-MAX_WHEEL_SPEED, min(MAX_WHEEL_SPEED, omega_l))
-            # omega_r = max(-MAX_WHEEL_SPEED, min(MAX_WHEEL_SPEED, omega_r))
+        # --- Clustering for obstacles (in world frame) ---
+        clusters = detect_obstacles(xs, ys)
+
+        # Build obstacle list for controller
+        obstacles_for_vo = []
+
+        oid = 1
+        for cluster in clusters:
+            pts_x = [p[0] for p in cluster]
+            pts_y = [p[1] for p in cluster]
+            cx = sum(pts_x) / len(pts_x)
+            cy = sum(pts_y) / len(pts_y)
+            radius = max(math.dist((cx,cy),(px,py)) for px,py in cluster)
+
+            print(f"Obstacle {oid}: (x={cx:.2f}, y={cy:.2f}, r={radius:.2f})")
+
+            obstacles_for_vo.append((cx, cy, radius))
+            oid += 1
+
+        if len(clusters) == 0:
+            print("No Obstacles Detected.")
+
+        # --- Go-to-goal baseline control (compute v,w before VO) ---
+        dx_goal = GOAL_X - pose[0]
+        dy_goal = GOAL_Y - pose[1]
+        dist_goal = math.hypot(dx_goal, dy_goal)
+        heading_goal = math.atan2(dy_goal, dx_goal)
+
+        # Update the path_length
+        path_length, prev_pos = update_path_length(path_length, prev_pos)
+        no_timesteps += 1
+        
+        if dist_goal < 0.01:
+            # reached
+            left_motor.setVelocity(0)
+            right_motor.setVelocity(0)
+            print("Goal Reached!")
             
-            angular_velocity_left = omega_l
-            angular_velocity_right = omega_r
+            # Store the location the robot finished at for testing later
+            finishing_positions.append((pose[0], pose[1]))
+            actual_finishing_positions.append(calculate_exact_coords_for_testing())
+            path_lengths.append(path_length)
+            times_taken.append(no_timesteps * TIME_STEP)
+            break
+
+        heading_err = math.atan2(math.sin(heading_goal - theta), math.cos(heading_goal - theta))
+        v_cmd = V_NOMINAL
+        w_cmd = W_GAIN * heading_err
+
+        # Odometric Movement Code (Defines what the robot will do when there are no detected obstacles)
+                
+        # Compute displacement from goal
+        delta_x = goal_position[0] - pose[0]
+        delta_y = goal_position[1] - pose[1]
+                
+        distance_to_goal = math.sqrt((delta_x**2) + (delta_y**2))
+        
+        angular_displacement = math.atan2(delta_y, delta_x)
+        
+        angular_velocity_left, angular_velocity_right = calculate_velocities(distance_to_goal, angular_displacement)
+
+        # --- VO avoidance (static obstacles) ---
+        # check each obstacle; if any returns True, apply avoidance adjustments
+        for (ox, oy, oradius) in obstacles_for_vo:
+            inflated_R = ROBOT_RADIUS + oradius
+            collision = is_collision_course_static(ox, oy, v_cmd, pose[0], pose[1], pose[2], inflated_R)
+
+            # compute lambda and cone boundary rays in world coords (start at robot pos)
+            dx_o = ox - pose[0]
+            dy_o = oy - pose[1]
+            d_o = math.hypot(dx_o, dy_o)
+            if d_o > 1e-6:
+                lam = math.asin(min(1.0, inflated_R / d_o))
+                p_hat = np.array([dx_o/d_o, dy_o/d_o])
+                # left boundary
+                rotL = np.array([[math.cos(+lam), -math.sin(+lam)],[math.sin(+lam), math.cos(+lam)]])
+                rotR = np.array([[math.cos(-lam), -math.sin(-lam)],[math.sin(-lam), math.cos(-lam)]])
+                bL = rotL.dot(p_hat)
+                bR = rotR.dot(p_hat)
+                cone_len = max(0.8, min(3.0, d_o))  # draw to reasonable length
+            
+            # if collision predicted, steer away (add angular bias + slow)
+            if collision:
+                print("Performing evasive manuevers... Obstacle's postion:", (ox,oy))
+
+                alpha_signed = signed_angle_between_p_and_heading(dx_o, dy_o, theta)
+                if alpha_signed > 0:
+                    w_cmd += TURN_BIAS
+                else:
+                    w_cmd -= TURN_BIAS
+                v_cmd *= SLOWDOWN_FACTOR
+
+                # --- Convert (v_cmd, w_cmd) to wheel speeds and publish ---
+                omega_l = (2.0*v_cmd - w_cmd*DISTANCE_BETWEEN_WHEELS) / (2.0*WHEEL_RADIUS)
+                omega_r = (2.0*v_cmd + w_cmd*DISTANCE_BETWEEN_WHEELS) / (2.0*WHEEL_RADIUS)
+                
+                angular_velocity_left = omega_l
+                angular_velocity_right = omega_r
+        
+        # Update Robot Pose
+        compute_current_pose(angular_velocity_left, angular_velocity_right)
+
+        # Sets the velocity for the left and right motors
+        left_motor.setVelocity(angular_velocity_left)
+        right_motor.setVelocity(angular_velocity_right)
     
-    compute_current_pose(angular_velocity_left, angular_velocity_right)
+        pass
 
-    left_motor.setVelocity(angular_velocity_left)
-    print("vel left", left_motor.getVelocity())
-    right_motor.setVelocity(angular_velocity_right)
-    
-    pass
+print("Controller finished!")
 
-    # --- Update robot drawing (body, heading, velocity arrow) ---
-    # robot_body.center = (pose[0], pose[1])
-    # heading_arrow.set_positions((pose[0], pose[1]), (pose[0] + 0.35*math.cos(pose[2]), y + 0.35*math.sin(pose[2])))
-    # vel_arrow.remove()  # remove old and add new (easier to manage)
-    # vel_arrow = FancyArrowPatch((pose[0], pose[1]), (pose[0] + 0.5*v_cmd*math.cos(pose[2]), y + 0.5*v_cmd*math.sin(pose[2])),
-                                # arrowstyle='->', color='magenta', mutation_scale=12, linewidth=2)
-    # ax.add_patch(vel_arrow)
+if singleExecution:
+    for i in range (len(goal_positions)):
+        print(f'Goal {i+1}:\n')
+        print(f'Starting Position: {starting_position}\n')
+        print(f'\tTarget:', goal_positions[i])
+        
+        print(f'\tEstimate Destination:', finishing_positions[i])
+        print(f'\tActual Destination:', actual_finishing_positions[i])
+        print(f'\tError in x (estimated):', abs(finishing_positions[i][0] - goal_positions[i][0]))
+        print(f'\tError in y (estimated):', abs(finishing_positions[i][1] - goal_positions[i][1]))
+        print(f'\tError in x (true):', abs(actual_finishing_positions[i][0] - goal_positions[i][0]))
+        print(f'\tError in y (true):', abs(actual_finishing_positions[i][1] - goal_positions[i][1]))
+        print(f'\nPath Length = {path_lengths[i]} metres')
+        print(f'\nTime Taken = {times_taken[i] / 1000}')
+else:
+    for i in range (len(goal_positions)):
+        print(f'Goal {i+1}:\n')
+        print(f'\tTarget:', goal_positions[i])
+        print(f'\tEstimate Destination:', finishing_positions[i])
+        print(f'\tActual Destination:', actual_finishing_positions[i])
+        print(f'\tError in x (estimated):', abs(finishing_positions[i][0] - goal_positions[i][0]))
+        print(f'\tError in y (estimated):', abs(finishing_positions[i][1] - goal_positions[i][1]))
+        print(f'\tError in x (true):', abs(actual_finishing_positions[i][0] - goal_positions[i][0]))
+        print(f'\tError in y (true):', abs(actual_finishing_positions[i][1] - goal_positions[i][1]))
+        
+        # Caclulate euclidean distance
+        d = np.linalg.norm(np.array(finishing_positions[i]) - np.array(goal_positions[i]))
+        print(f'\tEuclidean distance between Target and Estimated Destination = ', d)
 
-    # # re-draw goal marker (in case limits/scale change)
-    # goal_marker.set_data(GOAL_X, GOAL_Y)
+        d = np.linalg.norm(np.array(actual_finishing_positions[i]) - np.array(goal_positions[i]))
+        print(f'\tEuclidean distance between Target and Actual Destination = ', d)
 
-    # plt.draw()
-    # plt.pause(0.001)
-
-# end loop
-print("Controller finished.")
 
