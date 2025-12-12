@@ -157,14 +157,12 @@ def calculate_velocities(distance_to_goal, angular_displacement):
     return [angular_velocity_left, angular_velocity_right]
 
 
-def compute_current_pose(angular_velocity_left, angular_velocity_right):
+def compute_current_pose():
     
     # Update pose (pose = [x,y,theta])
     
     global left_encoder_old
     global right_encoder_old
-    velocity_right = angular_velocity_right * WHEEL_RADIUS
-    velocity_left = angular_velocity_left * WHEEL_RADIUS
     
     left_encoder_new = left_encoder.getValue()
     right_encoder_new = right_encoder.getValue()
@@ -414,7 +412,7 @@ for goal_position in goal_positions:
                 angular_velocity_right = omega_r
         
         # Update Robot Pose
-        compute_current_pose(angular_velocity_left, angular_velocity_right)
+        compute_current_pose()
 
         # Sets the velocity for the left and right motors
         left_motor.setVelocity(angular_velocity_left)
