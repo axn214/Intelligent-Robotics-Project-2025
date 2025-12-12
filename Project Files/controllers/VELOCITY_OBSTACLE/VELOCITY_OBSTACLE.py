@@ -165,8 +165,6 @@ def compute_current_pose(angular_velocity_left, angular_velocity_right):
     global right_encoder_old
     velocity_right = angular_velocity_right * WHEEL_RADIUS
     velocity_left = angular_velocity_left * WHEEL_RADIUS
-
-    angular_velocity = (velocity_right - velocity_left) / DISTANCE_BETWEEN_WHEELS
     
     left_encoder_new = left_encoder.getValue()
     right_encoder_new = right_encoder.getValue()

@@ -111,9 +111,6 @@ def calculate_velocities(distance_to_goal, angular_displacement):
     angular_velocity_left = linear_velocity_left / WHEEL_RADIUS
     angular_velocity_right = linear_velocity_right / WHEEL_RADIUS
     
-    # Convert to rev/s
-    angular_velocity_left = angular_velocity_left / (2 * math.pi)
-    angular_velocity_right = angular_velocity_right / (2 * math.pi)
 
     print("Angular Velocity Left = ", angular_velocity_left)
     print("Angular Velocity Right = ", angular_velocity_right)
@@ -128,13 +125,9 @@ def compute_current_pose(angular_velocity_left, angular_velocity_right):
     velocity_left = angular_velocity_left * WHEEL_RADIUS
 
     angular_velocity = (velocity_right - velocity_left) / DISTANCE_BETWEEN_WHEELS
-    # NEW 2
     
     left_encoder_new = left_encoder.getValue()
     right_encoder_new = right_encoder.getValue()
-
-    # rev_left = (left_encoder_new - left_encoder_old) / (2 * math.pi) 
-    # rev_right = (right_encoder_new - right_encoder_old) / (2 * math.pi) 
     
     # First we need to calcualte the distance travelled by each wheel (chnage in distance)
     delta_left = (left_encoder_new - left_encoder_old) * WHEEL_RADIUS
@@ -144,7 +137,6 @@ def compute_current_pose(angular_velocity_left, angular_velocity_right):
     left_encoder_old = left_encoder_new
     right_encoder_old = right_encoder_new
 
-    
     #Calculate the robots avg displacement and orientation change
     delta_avg = (delta_left + delta_right) / 2
     delta_orientation = (delta_right - delta_left) / DISTANCE_BETWEEN_WHEELS
@@ -161,9 +153,6 @@ def compute_current_pose(angular_velocity_left, angular_velocity_right):
     theta_mid = pose[2] - delta_orientation / 2
     delta_x = delta_avg * math.cos(theta_mid)
     delta_y = delta_avg * math.sin(theta_mid)
-
-    
-
     
     # Store new x and y coordinates
     pose[0] += delta_x
